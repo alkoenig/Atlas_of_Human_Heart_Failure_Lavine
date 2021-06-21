@@ -108,22 +108,16 @@ write.table(HDCM.markers, "markers.tsv", sep="\t", quote=F, row.names=F)
 ## SAVING
 save(HDCM, file="HDCM.Robj")
 
-#CLUSTER TABLE BY GROUP
-clusters.by.group<-table(HDCM@active.ident, HDCM@meta.data$orig.ident)
-write.table(clusters.by.group, "clusters_by_group_0.6.tsv", sep="\t", quote=F)
+## Add Condition meta
+RefMerge$Condition<- ifelse(RefMerge$orig.ident %in% c('HDCM1',
+                                                       'HDCM6',), "Donor", "DCM")
 
-#HEATMAP
-markers<-FindAllMarkers(object=HDCM, only.pos=TRUE, min.pct =0.25)
-write.table(markers, "markers_0.6.tsv", sep="\t", quote=F, row.names=F)
-
-top5 <- HDCM.markers %>% group_by(cluster) %>% top_n(5, avg_logFC)
-
-my_levels<-c(0,1,10,11,12,13,14,15,16,17,18,19,2,20,3,4,5,6,7,8,9)
-levels(HDCM)<-my_levels
-levels(top5)<-my_levels
-
-Heatmap<-DoHeatmap(object = HDCM, features = top5$gene, size=2, angle=90) + NoLegend()
-Heatmap + theme(axis.text.y = element_text(size=5), plot.margin=unit(c(1,1,1,1),"cm"))
-ggsave("Top5_Heatmap_0.6.png", width=16, height=12)
-
-save(HDCM, file="HDCM.Robj")
+## Add Age Group Meta
+RefMerge$Age_Group_Tertile<- ifelse(RefMerge$orig.ident %in% c("HDCM3",
+                                                               "HDCM8"), "Young",ifelse(RefMerge$orig.ident %in% c('HDCM1',
+                                                                                                                   'HDCM6'),"Middle","Old"))
+## Add Sex Meta
+RefMerge$Sex<- ifelse(RefMerge$orig.ident %in% c('HDCM1',
+                                                 'HDCM6',
+                                                 'HDCM7',
+                                                 'HDCM4'), "Male", "Female")
