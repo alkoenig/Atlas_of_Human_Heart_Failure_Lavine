@@ -1,0 +1,311 @@
+
+```{r loading libraries}
+library(Seurat)
+library(DESeq2)
+library(ggplot2)
+library(apeglm)
+library(ashr)
+library(vsn)
+library(dplyr)
+library(tibble)
+library(clipr)
+```
+
+```{loading data}
+load("/path/to/object/Myeloid.Robj")
+a<-subset(Myeloid,idents="Donor") #Create object 'a' from object you are analyzing and keeping only non-diseased donors
+Nuclei_Meta<-read.delim("/path/to/sample_metadata.txt") #read in table of sample metadata
+
+```
+
+```{r preprocessing}
+raw.data <- as.matrix(GetAssayData(a[["RNA"]], slot = "counts"))
+
+col.names<-as.vector(colnames(raw.data))
+col.names <- substr(col.names,1,nchar(col.names)-17)
+
+colnames(raw.data)<-col.names
+
+sum.data<-sapply(unique(colnames(raw.data)), function(x) rowSums(raw.data[,grepl(x, colnames(raw.data))]))
+
+write.table(sum.data, "sum_raw_myeloid_data.tsv", sep="\t", quote=F)
+
+#t(rowsum(t(as.matrix(expData)), group = colnames(as.matrix(expData)), na.rm = T))
+
+col.names <-as.vector(colnames(sum.data))
+#grouping <- function(name){
+#  sapply(name,
+#         function(x) if(grepl("NR-pre", x)) "NR-pre" else if (grepl("NR-post", x)) "NR-post" else if (grepl("R-post", x)) "R-post" #else if (grepl("R-pre", x)) "R-pre" else "Healthy")
+#}
+
+Nuclei_Meta<-Nuclei_Meta[match(col.names,Nuclei_Meta$Samples),]
+
+grouping<-Nuclei_Meta$Samples
+col.names <- grouping(col.names)
+group <- col.names
+col.names <- make.names(col.names, unique=TRUE, allow_ = TRUE)
+
+colnames(sum.data) <- col.names
+write.table(sum.data, "sum_myeloid_data.tsv", sep="\t", quote=F)
+```
+
+
+```{r DESeq2 Normalization}
+a <- aggregate(x = sum.data, by = list(rownames(sum.data)), FUN = sum, simplify=FALSE)
+
+#remove cardiomyocyte contaminating genes in all populations except cardiomyocytes
+cardio<-read.delim('/Path/To/cardio_genes.txt') #File with Seurat calculated gene enrichment in cardiomyocyte population
+cardio<-rownames_to_column(cardio,var="genes")
+a <- a[-which(a$Group.1 %in% cardio$genes[1:100]),]
+
+NGSnum <- Nuclei_Meta
+
+all(colnames(a[,-1]) == Nuclei_Meta$Samples)
+b <- Nuclei_Meta[,-1]
+
+rownames(b) <- Nuclei_Meta$Samples
+rownames(a) <- a$Group.1
+colData <- lapply(rownames(b), as.factor)
+
+NGSnum <- apply(X = a[,-1], MARGIN = 2, FUN = as.numeric)
+NGSnum <- apply(X = NGSnum, MARGIN = 2, FUN = round)
+rownames(NGSnum) <- a$Group.1
+all(colnames(NGSnum) %in% rownames(b))
+
+## Skip to Female vs Male or Old vs Young
+
+```
+
+```{r Female vs Male}
+
+dds <- DESeqDataSetFromMatrix(countData = NGSnum, colData = b, design = ~0+  Sex)
+dds <- estimateSizeFactors(dds)
+normalized_counts <- counts(dds, normalized=TRUE)
+## Total number of raw counts per sample
+write.table(normalized_counts, file="normalized_counts_myeloid_sex.tsv", sep="\t", quote=F, col.names=NA)
+
+dds <- DESeq(dds)
+colSums(counts(dds, normalized=T)) #Total number of normalized counts per sample
+
+log2cutoff <- 0.5 #or 0.0 to return all genes
+qvaluecutoff <- 0.05 #or 0.0 to return all genes
+
+
+Female_Male <- results(dds, name="Female_vs_Male", contrast = c('Sex','male','female'), test="Wald",independentFiltering=TRUE, alpha=0.05, pAdjustMethod="BH", parallel=TRUE) 
+resultsNames(dds)
+Female_Male <- lfcShrink(dds, contrast=c('Condition','male','female'), res=Female_Male, type = "ashr")
+
+png("Female_Male.png",
+    width = 10*100, height = 8*100,
+    res=100)
+plotMA(Female_Male, ylim = c(-4,4), main="Female_Male")
+dev.off()
+
+summary(Female_Male)
+sum(Female_Male$padj < 0.05, na.rm=TRUE) #number of DEGs
+
+png("Volcano_Female_Male.png",
+    width = 15*100, height = 13*100,
+    res=100)
+#reset par
+par(mfrow=c(1,1))
+# Make a basic volcano plot
+with(Female_Male, plot(log2FoldChange, -log10(pvalue), pch=20, main="Volcano plot", xlim=c(-4,4)
+                       ,ylim=c(0,20)
+                       ))
+# Add colored points: blue if padj<0.05, red if log2FC>1 and padj<0.05)
+with(subset(Female_Male, padj<.05 ), points(log2FoldChange, -log10(pvalue), pch=20, col="blue"))
+with(subset(Female_Male, padj<.05 & abs(log2FoldChange)>1), points(log2FoldChange, -log10(pvalue), pch=20, col="red"))
+dev.off()
+
+png("Volcano_Female_Male_autoscale.png",
+    width = 15*100, height = 13*100,
+    res=100)
+#reset par
+par(mfrow=c(1,1))
+# Make a basic volcano plot
+with(Female_Male, plot(log2FoldChange, -log10(pvalue), pch=20, main="Volcano plot"))
+# Add colored points: blue if padj<0.05, red if log2FC>1 and padj<0.05)
+with(subset(Female_Male, padj<.05 ), points(log2FoldChange, -log10(pvalue), pch=20, col="blue"))
+with(subset(Female_Male, padj<.05 & abs(log2FoldChange)>1), points(log2FoldChange, -log10(pvalue), pch=20, col="red"))
+dev.off()
+
+Female_Male <- Female_Male[order(Female_Male$padj),] #sort summary list
+
+png("Volcano_Female_Male_labels.png",
+    width = 15*100, height = 13*100,
+    res=100)
+#reset par
+par(mfrow=c(1,1))
+# Make a basic volcano plot
+with(Female_Male, plot(log2FoldChange, -log10(pvalue), pch=20, main="Volcano plot", xlim=c(-4,4)
+                       ,ylim=c(0,20)
+                       ))
+# Add colored points: blue if padj<0.05, red if log2FC>1 and padj<0.05)
+with(subset(Female_Male, padj<.05 ), points(log2FoldChange, -log10(pvalue), pch=20, col="blue"))
+with(subset(Female_Male, padj<.05 & abs(log2FoldChange)>1), points(log2FoldChange, -log10(pvalue), pch=20, col="red"))
+text(-log10(pvalue)~log2FoldChange,labels=rownames(as.matrix(Female_Male)), data=Female_Male, cex=0.8)
+dev.off()
+
+png("Volcano_Female_Male_autoscale_labels.png",
+    width = 15*100, height = 13*100,
+    res=100)
+#reset par
+par(mfrow=c(1,1))
+# Make a basic volcano plot
+with(Female_Male, plot(log2FoldChange, -log10(pvalue), pch=20, main="Volcano plot"))
+# Add colored points: blue if padj<0.05, red if log2FC>1 and padj<0.05)
+with(subset(Female_Male, padj<.05 ), points(log2FoldChange, -log10(pvalue), pch=20, col="blue"))
+with(subset(Female_Male, padj<.05 & abs(log2FoldChange)>1), points(log2FoldChange, -log10(pvalue), pch=20, col="red"))
+text(-log10(pvalue)~log2FoldChange,labels=rownames(as.matrix(Female_Male)), data=Female_Male, cex=0.8)
+dev.off()
+
+Female_Male <- unique(subset(Female_Male, padj<=qvaluecutoff & abs(log2FoldChange)>=log2cutoff))
+write.table(Female_Male, "DE_Female_Male.tsv", sep = '\t')
+
+png("plotCounts_Female_Male.png",
+    width = 13*100, height = 10*100,
+    res=100)
+par(mfrow=c(2,3))
+plotCounts(dds, gene=rownames(as.matrix(Female_Male))[1], intgroup="Sex")
+plotCounts(dds, gene=rownames(as.matrix(Female_Male))[2], intgroup="Sex")
+plotCounts(dds, gene=rownames(as.matrix(Female_Male))[3], intgroup="Sex")
+plotCounts(dds, gene=rownames(as.matrix(Female_Male))[4], intgroup="Sex")
+plotCounts(dds, gene=rownames(as.matrix(Female_Male))[5], intgroup="Sex")
+plotCounts(dds, gene=rownames(as.matrix(Female_Male))[6], intgroup="Sex")
+dev.off()
+
+## Skip to PCA
+```
+
+```{r Old V Young}
+#Do not run directly after Female vs Male without reloading objects
+
+dds <- DESeqDataSetFromMatrix(countData = NGSnum, colData = b, design = ~0+  Age_Group)
+dds <- estimateSizeFactors(dds)
+normalized_counts <- counts(dds, normalized=TRUE)
+## Total number of raw counts per sample
+write.table(normalized_counts, file="normalized_counts_myeloid_Age_Group.tsv", sep="\t", quote=F, col.names=NA)
+
+dds <- DESeq(dds)
+colSums(counts(dds, normalized=T)) #Total number of normalized counts per sample
+
+log2cutoff <- 0.5 #or 0.0 to return all genes
+qvaluecutoff <- 0.05 #or 0.0 to return all genes
+
+
+old_young <- results(dds, name="old_vs_young", contrast = c('Age_Group','young','old'), test="Wald",independentFiltering=TRUE, alpha=0.05, pAdjustMethod="BH", parallel=TRUE) 
+resultsNames(dds)
+old_young <- lfcShrink(dds, contrast=c('Condition','young','old'), res=old_young, type = "ashr")
+
+png("old_young.png",
+    width = 10*100, height = 8*100,
+    res=100)
+plotMA(old_young, ylim = c(-4,4), main="old_young")
+dev.off()
+
+summary(old_young)
+sum(old_young$padj < 0.05, na.rm=TRUE) #number of DEGs
+
+png("Volcano_old_young.png",
+    width = 15*100, height = 13*100,
+    res=100)
+#reset par
+par(mfrow=c(1,1))
+# Make a basic volcano plot
+with(old_young, plot(log2FoldChange, -log10(pvalue), pch=20, main="Volcano plot", xlim=c(-4,4)
+                       ,ylim=c(0,20)
+                       ))
+# Add colored points: blue if padj<0.05, red if log2FC>1 and padj<0.05)
+with(subset(old_young, padj<.05 ), points(log2FoldChange, -log10(pvalue), pch=20, col="blue"))
+with(subset(old_young, padj<.05 & abs(log2FoldChange)>1), points(log2FoldChange, -log10(pvalue), pch=20, col="red"))
+dev.off()
+
+png("Volcano_old_young_autoscale.png",
+    width = 15*100, height = 13*100,
+    res=100)
+#reset par
+par(mfrow=c(1,1))
+# Make a basic volcano plot
+with(old_young, plot(log2FoldChange, -log10(pvalue), pch=20, main="Volcano plot"))
+# Add colored points: blue if padj<0.05, red if log2FC>1 and padj<0.05)
+with(subset(old_young, padj<.05 ), points(log2FoldChange, -log10(pvalue), pch=20, col="blue"))
+with(subset(old_young, padj<.05 & abs(log2FoldChange)>1), points(log2FoldChange, -log10(pvalue), pch=20, col="red"))
+dev.off()
+
+old_young <- old_young[order(old_young$padj),] #sort summary list
+
+png("Volcano_old_young_labels.png",
+    width = 15*100, height = 13*100,
+    res=100)
+#reset par
+par(mfrow=c(1,1))
+# Make a basic volcano plot
+with(old_young, plot(log2FoldChange, -log10(pvalue), pch=20, main="Volcano plot", xlim=c(-4,4)
+                       ,ylim=c(0,20)
+                       ))
+# Add colored points: blue if padj<0.05, red if log2FC>1 and padj<0.05)
+with(subset(old_young, padj<.05 ), points(log2FoldChange, -log10(pvalue), pch=20, col="blue"))
+with(subset(old_young, padj<.05 & abs(log2FoldChange)>1), points(log2FoldChange, -log10(pvalue), pch=20, col="red"))
+text(-log10(pvalue)~log2FoldChange,labels=rownames(as.matrix(old_young)), data=old_young, cex=0.8)
+dev.off()
+
+png("Volcano_old_young_autoscale_labels.png",
+    width = 15*100, height = 13*100,
+    res=100)
+#reset par
+par(mfrow=c(1,1))
+# Make a basic volcano plot
+with(old_young, plot(log2FoldChange, -log10(pvalue), pch=20, main="Volcano plot"))
+# Add colored points: blue if padj<0.05, red if log2FC>1 and padj<0.05)
+with(subset(old_young, padj<.05 ), points(log2FoldChange, -log10(pvalue), pch=20, col="blue"))
+with(subset(old_young, padj<.05 & abs(log2FoldChange)>1), points(log2FoldChange, -log10(pvalue), pch=20, col="red"))
+text(-log10(pvalue)~log2FoldChange,labels=rownames(as.matrix(old_young)), data=old_young, cex=0.8)
+dev.off()
+
+
+old_young <- unique(subset(old_young, padj<=qvaluecutoff & abs(log2FoldChange)>=log2cutoff))
+write.table(old_young, "DE_old_young.tsv", sep = '\t')
+
+png("plotCounts_old_young.png",
+    width = 13*100, height = 10*100,
+    res=100)
+par(mfrow=c(2,3))
+plotCounts(dds, gene=rownames(as.matrix(old_young))[1], intgroup="Age_Group")
+plotCounts(dds, gene=rownames(as.matrix(old_young))[2], intgroup="Age_Group")
+plotCounts(dds, gene=rownames(as.matrix(old_young))[3], intgroup="Age_Group")
+plotCounts(dds, gene=rownames(as.matrix(old_young))[4], intgroup="Age_Group")
+plotCounts(dds, gene=rownames(as.matrix(old_young))[5], intgroup="Age_Group")
+plotCounts(dds, gene=rownames(as.matrix(old_young))[6], intgroup="Age_Group")
+dev.off()
+```
+
+
+```{r PCA}
+#First we need to transform the raw count data
+#vst function will perform variance stabilizing transformation or rlog
+vsdata <- vst(dds, blind=FALSE)
+rlongdata <- rlog(dds, blind = FALSE)
+
+png("myeloid_PCA_Cond.png", width = 13*100, height = 10*100, res=100)
+plotPCA(rlongdata, intgroup="Condition") +geom_point(size=12)+ theme(panel.background = element_rect(fill="white"))
+dev.off()
+
+png("myeloid_PCA_Cond_Sex.png", width = 13*100, height = 10*100, res=100)
+plotPCA(rlongdata, intgroup="Cond_Sex") +geom_point(size=12)+ theme(panel.background = element_rect(fill="white"))
+dev.off()
+
+png("myeloid_PCA_Sex.png", width = 13*100, height = 10*100, res=100)
+plotPCA(rlongdata, intgroup="Sex") +geom_point(size=12)+ theme(panel.background = element_rect(fill="white"))
+dev.off()
+
+png("myeloid_PCA_Age.png", width = 13*100, height = 10*100, res=100)
+plotPCA(rlongdata, intgroup="Age") +geom_point(size=12) +scale_color_gradientn(colours=c("gray","lightblue","blue","darkorchid4"))+ theme(panel.background = element_rect(fill="white"))
+dev.off()
+
+png("myeloid_PCA_AgeGroup.png", width = 13*100, height = 10*100, res=100)
+plotPCA(rlongdata, intgroup="Age_Group") +geom_point(size=12)+ theme(panel.background = element_rect(fill="white"))
+dev.off()
+
+
+```

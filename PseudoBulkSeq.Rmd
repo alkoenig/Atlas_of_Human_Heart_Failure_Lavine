@@ -1,0 +1,206 @@
+
+```{r loading libraries}
+library(Seurat)
+library(DESeq2)
+library(ggplot2)
+library(apeglm)
+library(ashr)
+library(vsn)
+library(dplyr)
+library(tibble)
+library(clipr)
+```
+
+```{loading data}
+load("/path/to/object/Myeloid.Robj")
+a<-Myeloid #Create object 'a' from object you are analyzing
+Nuclei_Meta<-read.delim("/path/to/sample_metadata.txt") #read in table of sample metadata
+
+```
+
+```{r preprocessing}
+raw.data <- as.matrix(GetAssayData(a[["RNA"]], slot = "counts"))
+
+col.names<-as.vector(colnames(raw.data))
+col.names <- substr(col.names,1,nchar(col.names)-17)
+
+colnames(raw.data)<-col.names
+
+sum.data<-sapply(unique(colnames(raw.data)), function(x) rowSums(raw.data[,grepl(x, colnames(raw.data))]))
+
+write.table(sum.data, "sum_raw_myeloid_data.tsv", sep="\t", quote=F)
+
+#t(rowsum(t(as.matrix(expData)), group = colnames(as.matrix(expData)), na.rm = T))
+
+col.names <-as.vector(colnames(sum.data))
+#grouping <- function(name){
+#  sapply(name,
+#         function(x) if(grepl("NR-pre", x)) "NR-pre" else if (grepl("NR-post", x)) "NR-post" else if (grepl("R-post", x)) "R-post" #else if (grepl("R-pre", x)) "R-pre" else "Healthy")
+#}
+
+Nuclei_Meta<-Nuclei_Meta[match(col.names,Nuclei_Meta$Samples),]
+
+grouping<-Nuclei_Meta$Samples
+col.names <- grouping(col.names)
+group <- col.names
+col.names <- make.names(col.names, unique=TRUE, allow_ = TRUE)
+
+colnames(sum.data) <- col.names
+write.table(sum.data, "sum_myeloid_data.tsv", sep="\t", quote=F)
+```
+
+
+```{r DESeq2 Normalization}
+a <- aggregate(x = sum.data, by = list(rownames(sum.data)), FUN = sum, simplify=FALSE)
+
+#remove cardiomyocyte contaminating genes in all populations except cardiomyocytes
+cardio<-read.delim('/Path/To/cardio_genes.txt') #File with Seurat calculated gene enrichment in cardiomyocyte population
+cardio<-rownames_to_column(cardio,var="genes")
+a <- a[-which(a$Group.1 %in% cardio$genes[1:100]),]
+
+NGSnum <- Nuclei_Meta
+
+all(colnames(a[,-1]) == Nuclei_Meta$Samples)
+b <- Nuclei_Meta[,-1]
+
+rownames(b) <- Nuclei_Meta$Samples
+rownames(a) <- a$Group.1
+colData <- lapply(rownames(b), as.factor)
+
+NGSnum <- apply(X = a[,-1], MARGIN = 2, FUN = as.numeric)
+NGSnum <- apply(X = NGSnum, MARGIN = 2, FUN = round)
+rownames(NGSnum) <- a$Group.1
+all(colnames(NGSnum) %in% rownames(b))
+
+dds <- DESeqDataSetFromMatrix(countData = NGSnum, colData = b, design = ~0+ Condition)
+dds <- estimateSizeFactors(dds)
+normalized_counts <- counts(dds, normalized=TRUE)
+## Total number of raw counts per sample
+write.table(normalized_counts, file="normalized_counts_myeloid.tsv", sep="\t", quote=F, col.names=NA)
+```
+
+```{r DE}
+dds <- DESeq(dds)
+colSums(counts(dds, normalized=T)) #Total number of normalized counts per sample
+
+log2cutoff <- 0.5 #or 0.0 to return all genes
+qvaluecutoff <- 0.05 #or 0.0 to return all genes
+```
+
+```{r Healthy vs DCM}
+#Pairwise comparison: contrast= c('factorName','numeratorLevel','denominatorLevel')
+
+Healthy_DCM <- results(dds, name="Healthy_vs_DCM", contrast = c('Condition','DCM','Healthy'), test="Wald",independentFiltering=TRUE, alpha=0.05, pAdjustMethod="BH", parallel=FALSE)
+resultsNames(dds)
+Healthy_DCM <- lfcShrink(dds, contrast=c('Condition','DCM','Healthy'), res=Healthy_DCM, type = "ashr")
+
+png("Healthy_DCM.png",
+    width = 10*100, height = 8*100,
+    res=100)
+plotMA(Healthy_DCM, ylim = c(-3,3), main="Healthy_DCM")
+dev.off()
+
+summary(Healthy_DCM)
+sum(Healthy_DCM$padj < 0.05, na.rm=TRUE) #number of DEGs
+
+png("Volcano_Healthy_DCM.png",
+    width = 15*100, height = 13*100,
+    res=100)
+#reset par
+par(mfrow=c(1,1))
+# Make a basic volcano plot
+with(Healthy_DCM, plot(log2FoldChange, -log10(pvalue), pch=20, main="Volcano plot", xlim=c(-4,4)
+                       ,ylim=c(0,20)
+                       ))
+# Add colored points: blue if padj<0.05, red if log2FC>1 and padj<0.05)
+with(subset(Healthy_DCM, padj<.05 ), points(log2FoldChange, -log10(pvalue), pch=20, col="blue"))
+with(subset(Healthy_DCM, padj<.05 & abs(log2FoldChange)>1), points(log2FoldChange, -log10(pvalue), pch=20, col="red"))
+dev.off()
+
+png("Volcano_Healthy_DCM_autoscale.png",
+    width = 15*100, height = 13*100,
+    res=100)
+#reset par
+par(mfrow=c(1,1))
+with(Healthy_DCM, plot(log2FoldChange, -log10(pvalue), pch=20, main="Volcano plot"))
+# Add colored points: blue if padj<0.05, red if log2FC>1 and padj<0.05)
+with(subset(Healthy_DCM, padj<.05 ), points(log2FoldChange, -log10(pvalue), pch=20, col="blue"))
+with(subset(Healthy_DCM, padj<.05 & abs(log2FoldChange)>1), points(log2FoldChange, -log10(pvalue), pch=20, col="red"))
+dev.off()
+
+
+Healthy_DCM <- Healthy_DCM[order(Healthy_DCM$padj),] #sort summary list
+
+png("Volcano_Healthy_DCM_labels.png",
+    width = 15*100, height = 13*100,
+    res=100)
+#reset par
+par(mfrow=c(1,1))
+# Make a basic volcano plot
+with(Healthy_DCM, plot(log2FoldChange, -log10(pvalue), pch=20, main="Volcano plot", xlim=c(-4,4)
+                       ,ylim=c(0,20)
+                       ))
+# Add colored points: blue if padj<0.05, red if log2FC>1 and padj<0.05)
+with(subset(Healthy_DCM, padj<.05 ), points(log2FoldChange, -log10(pvalue), pch=20, col="blue"))
+with(subset(Healthy_DCM, padj<.05 & abs(log2FoldChange)>1), points(log2FoldChange, -log10(pvalue), pch=20, col="red"))
+text(-log10(pvalue)~log2FoldChange,labels=rownames(as.matrix(Healthy_DCM)), data=Healthy_DCM, cex=0.8)
+dev.off()
+
+png("Volcano_Healthy_DCM_autoscale_labels.png",
+    width = 15*100, height = 13*100,
+    res=100)
+#reset par
+par(mfrow=c(1,1))
+with(Healthy_DCM, plot(log2FoldChange, -log10(pvalue), pch=20, main="Volcano plot"))
+# Add colored points: blue if padj<0.05, red if log2FC>1 and padj<0.05)
+with(subset(Healthy_DCM, padj<.05 ), points(log2FoldChange, -log10(pvalue), pch=20, col="blue"))
+with(subset(Healthy_DCM, padj<.05 & abs(log2FoldChange)>1), points(log2FoldChange, -log10(pvalue), pch=20, col="red"))
+text(-log10(pvalue)~log2FoldChange,labels=rownames(as.matrix(Healthy_DCM)), data=Healthy_DCM, cex=0.8)
+dev.off()
+
+Healthy_DCM <- unique(subset(Healthy_DCM, padj<=qvaluecutoff & abs(log2FoldChange)>=log2cutoff))
+write.table(Healthy_DCM, "DE_Healthy_DCM.tsv", sep = '\t')
+
+png("plotCounts_Healthy_DCM.png",
+    width = 13*100, height = 10*100,
+    res=100)
+par(mfrow=c(2,3))
+plotCounts(dds, gene=rownames(as.matrix(Healthy_DCM))[1], intgroup="Condition")
+plotCounts(dds, gene=rownames(as.matrix(Healthy_DCM))[2], intgroup="Condition")
+plotCounts(dds, gene=rownames(as.matrix(Healthy_DCM))[3], intgroup="Condition")
+plotCounts(dds, gene=rownames(as.matrix(Healthy_DCM))[4], intgroup="Condition")
+plotCounts(dds, gene=rownames(as.matrix(Healthy_DCM))[5], intgroup="Condition")
+plotCounts(dds, gene=rownames(as.matrix(Healthy_DCM))[6], intgroup="Condition")
+dev.off()
+#Next steps in exploring these data...BLAST to database to find associated gene function
+```
+
+
+```{r PCA}
+#First we need to transform the raw count data
+#vst function will perform variance stabilizing transformation or rlog
+vsdata <- vst(dds, blind=FALSE)
+rlongdata <- rlog(dds, blind = FALSE)
+
+png("myeloid_PCA_Cond.png", width = 13*100, height = 10*100, res=100)
+plotPCA(rlongdata, intgroup="Condition") +geom_point(size=12)+ theme(panel.background = element_rect(fill="white"))
+dev.off()
+
+png("myeloid_PCA_Cond_Sex.png", width = 13*100, height = 10*100, res=100)
+plotPCA(rlongdata, intgroup="Cond_Sex") +geom_point(size=12)+ theme(panel.background = element_rect(fill="white"))
+dev.off()
+
+png("myeloid_PCA_Sex.png", width = 13*100, height = 10*100, res=100)
+plotPCA(rlongdata, intgroup="Sex") +geom_point(size=12)+ theme(panel.background = element_rect(fill="white"))
+dev.off()
+
+png("myeloid_PCA_Age.png", width = 13*100, height = 10*100, res=100)
+plotPCA(rlongdata, intgroup="Age") +geom_point(size=12) +scale_color_gradientn(colours=c("gray","lightblue","blue","darkorchid4"))+ theme(panel.background = element_rect(fill="white"))
+dev.off()
+
+png("myeloid_PCA_AgeGroup.png", width = 13*100, height = 10*100, res=100)
+plotPCA(rlongdata, intgroup="Age_Group") +geom_point(size=12)+ theme(panel.background = element_rect(fill="white"))
+dev.off()
+
+
+```
