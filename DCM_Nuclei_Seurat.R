@@ -90,7 +90,8 @@ nuclei$Condition<- ifelse(nuclei$orig.ident %in% c('H_ZC-LVAD',
                                                    'TWCM-13-208',
                                                    'TWCM-13-285',
                                                    'TWCM-LVAD2',
-                                                   'TWCM-LVAD3'), "DCM", "Donor")
+                                                   'TWCM-LVAD3',
+                                                   'TWCM-10-5'), "DCM", "Donor")
 
 ## Add Age Group Meta
 nuclei$Age_Group_Tertile<- ifelse(nuclei$orig.ident %in% c('TWCM-13-181',
