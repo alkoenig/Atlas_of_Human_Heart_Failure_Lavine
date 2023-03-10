@@ -1,3 +1,6 @@
+# EXAMPLE SCRIPT FOR GENERATING INPUT FOR PALANTIR PYTHON SCRIPT 
+# YOU WILL NEED TO REPLACE/ADJUST FILE NAMES AS NECESSARY FOR YOUR OBJECTS
+
 ```{r}
 library(dplyr)
 library(Seurat)
@@ -9,7 +12,7 @@ library(viridis)
 
 ```{r}
 load('./fibroblast/integrated/Fibro_NewMeta.Robj')
-#load('/Volumes/klavine/Active/Andrew/Objects_New_Annotations/Cells/Myeloid.Robj')
+#load('/Cells/Myeloid.Robj')
 #load('./cardiomyocyte/integrated/Cardio_Newmeta.Robj')
 ```
 
@@ -27,10 +30,10 @@ write.csv(as.matrix(Fibro[["SCT"]]@scale.data),
           file = file.path(save_dir, "Fibro_SCT_normalized.txt"), quote = FALSE)
 
 #write.csv(as.matrix(Myeloid[["SCT"]]@scale.data), 
-#          file = file.path(save_dir, "Myeloid_SCT_normalized.txt"), quote = FALSE)
+          file = file.path(save_dir, "Myeloid_SCT_normalized.txt"), quote = FALSE)
 
 #write.csv(as.matrix(Cardio[["SCT"]]@scale.data), 
-#          file = file.path(save_dir, "Cardiomyocytes_SCT_normalized.txt"), quote = FALSE)
+          file = file.path(save_dir, "Cardiomyocytes_SCT_normalized.txt"), quote = FALSE)
 
 # Save the meta data
 write.csv(Fibro@meta.data, file = file.path(save_dir, "Fibro_meta.csv"), quote = FALSE)
