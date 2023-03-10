@@ -1,0 +1,125 @@
+```{r}
+library(dplyr)
+library(Seurat)
+library(patchwork)
+library(sctransform)
+library(ggplot2)
+library(viridis)
+```
+
+```{r}
+load('./fibroblast/integrated/Fibro_NewMeta.Robj')
+#load('/Volumes/klavine/Active/Andrew/Objects_New_Annotations/Cells/Myeloid.Robj')
+#load('./cardiomyocyte/integrated/Cardio_Newmeta.Robj')
+```
+
+```{r}
+DimPlot(Fibro, reduction = "umap")
+#DimPlot(Myeloid, reduction = "umap")
+DimPlot(Cardio, reduction = "umap")
+```
+
+```{r}
+save_dir <- "./fibroblast/integrated"
+
+# Save the normalized SCT matrix
+write.csv(as.matrix(Fibro[["SCT"]]@scale.data), 
+          file = file.path(save_dir, "Fibro_SCT_normalized.txt"), quote = FALSE)
+
+#write.csv(as.matrix(Myeloid[["SCT"]]@scale.data), 
+#          file = file.path(save_dir, "Myeloid_SCT_normalized.txt"), quote = FALSE)
+
+#write.csv(as.matrix(Cardio[["SCT"]]@scale.data), 
+#          file = file.path(save_dir, "Cardiomyocytes_SCT_normalized.txt"), quote = FALSE)
+
+# Save the meta data
+write.csv(Fibro@meta.data, file = file.path(save_dir, "Fibro_meta.csv"), quote = FALSE)
+#write.csv(Myeloid@meta.data, file = file.path(save_dir, "Myeloid_meta.csv"), quote = FALSE)
+#write.csv(Cardio@meta.data, file = file.path(save_dir, "Cardiomyocytes_meta.csv"), quote = FALSE)
+```
+
+###### Overlaying Palantir results on UMAP
+
+##### Fibro
+```{r}
+fibro_meta <- read.csv2('./fibroblast/integrated/fibro_palantir_meta_data.csv', header=TRUE, sep=',', row.names = 1)
+Fibro_2 <- AddMetaData(Fibro, fibro_meta)
+
+Fibro_2@meta.data$pseudotime <- as.numeric(as.character(Fibro_2@meta.data$pseudotime))
+Fibro_2@meta.data$entropy <- as.numeric(as.character(Fibro_2@meta.data$entropy))
+```
+
+```{r}
+FeaturePlot(Fibro_2, reduction = "umap", features = c("pseudotime"), col=plasma(256))
+ggsave('./fibroblast/integrated/fibro_sc_pseudotime_umap.png', dpi=1000)
+FeaturePlot(Fibro_2, reduction = "umap", features = c("entropy"), col=plasma(256))
+ggsave('./fibroblast/integrated/fibro_sc_entropy_umap.png', dpi=1000)
+```
+
+```{r}
+FeaturePlot(Fibro_2, reduction = "umap", features = c("pseudotime")) + scale_color_gradientn(colors=c("blue", "turquoise2","yellow","red","red4"), oob=scales::squish)
+#ggsave('./myeloid_sc_pseudotime_umap.png', dpi=1000)
+
+FeaturePlot(Fibro_2, reduction = "umap", features = c("entropy")) + scale_color_gradientn(colors=c("blue", "turquoise2","yellow","red","red4"), oob=scales::squish)
+#ggsave('./myeloid_sc_entropy_umap.png', dpi=1000)
+```
+
+##### Myeloid
+```{r}
+myeloid_meta <- read.csv2('/Users/jamrute/Documents/Graduate_School/Thesis_Lab/Lavine_Projects/Andrew_HDCM/Palantir/myeloid_single_cell/myeloid_palantir_meta_data.csv', header=TRUE, sep=',', row.names = 1)
+Myeloid_2 <- AddMetaData(Myeloid, myeloid_meta)
+
+Myeloid_2@meta.data$pseudotime <- as.numeric(as.character(Myeloid_2@meta.data$pseudotime))
+Myeloid_2@meta.data$entropy <- as.numeric(as.character(Myeloid_2@meta.data$entropy))
+```
+
+```{r}
+FeaturePlot(Myeloid_2, reduction = "umap", features = c("pseudotime"), col=plasma(256))
+ggsave('myeloid_sc_pseudotime_umap.png', dpi=1000)
+FeaturePlot(Myeloid_2, reduction = "umap", features = c("entropy"), col=plasma(256))
+ggsave('myeloid_sc_entropy_umap.png', dpi=1000)
+DimPlot(Myeloid_2, group.by = "group")
+ggsave('myeloid_sc_group_umap.png')
+DimPlot(Myeloid_2, group.by = "annotation")
+ggsave('myeloid_sc_annotation_umap.png')
+```
+
+##### Cardiomyocytes
+```{r}
+cm_meta <- read.csv2('./cardiomyocyte/integrated/cardiomyocytes_palantir_meta_data.csv', header=TRUE, sep=',', row.names = 1)
+Cardiomyocytes_2 <- AddMetaData(Cardio, cm_meta)
+
+Cardiomyocytes_2@meta.data$pseudotime <- as.numeric(as.character(Cardiomyocytes_2@meta.data$pseudotime))
+Cardiomyocytes_2@meta.data$entropy <- as.numeric(as.character(Cardiomyocytes_2@meta.data$entropy))
+```
+
+```{r}
+FeaturePlot(Cardiomyocytes_2, reduction = "umap", features = c("pseudotime"), col=plasma(256))
+ggsave('cm_sc_pseudotime_umap.png', dpi=1000)
+FeaturePlot(Cardiomyocytes_2, reduction = "umap", features = c("entropy"), col=plasma(256))
+ggsave('cm_sc_entropy_umap.png', dpi=1000)
+```
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
